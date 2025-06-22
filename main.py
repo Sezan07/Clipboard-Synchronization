@@ -15,6 +15,7 @@ app.add_middleware(
 
 # In-memory session store: {session_id: {"clients": [WebSocket, ...], "clipboard": str}}
 sessions = {}
+
 @app.get("/")
 def root():
     return {"status": "WebSocket server ready"}
@@ -22,39 +23,52 @@ def root():
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
-
+    
     # Create session if it doesn't exist
     if session_id not in sessions:
         sessions[session_id] = {"clients": [], "clipboard": ""}
-
+    
     sessions[session_id]["clients"].append(websocket)
     print(f"[+] {session_id}: Client connected. Total: {len(sessions[session_id]['clients'])}")
-
+    
     # On connect, send last known clipboard state
     clipboard_data = sessions[session_id]["clipboard"]
     if clipboard_data:
         await websocket.send_text(clipboard_data)
-
+    
     try:
         while True:
             data = await websocket.receive_text()
             sessions[session_id]["clipboard"] = data
             print(f"[→] {session_id}: Received update")
-
-            for client in sessions[session_id]["clients"]:
+            
+            # Create a copy of the clients list to avoid modification during iteration
+            clients_copy = sessions[session_id]["clients"].copy()
+            for client in clients_copy:
                 if client != websocket:
                     try:
                         await client.send_text(data)
-                    except:
-                        pass  # Handle silently
-
+                    except Exception as e:
+                        # Remove disconnected clients
+                        print(f"[!] {session_id}: Removing disconnected client: {e}")
+                        if client in sessions[session_id]["clients"]:
+                            sessions[session_id]["clients"].remove(client)
+                            
     except WebSocketDisconnect:
-        sessions[session_id]["clients"].remove(websocket)
+        # Remove the disconnected client
+        if websocket in sessions[session_id]["clients"]:
+            sessions[session_id]["clients"].remove(websocket)
         print(f"[-] {session_id}: Client disconnected. Remaining: {len(sessions[session_id]['clients'])}")
-
+        
+        # Clean up empty sessions
         if not sessions[session_id]["clients"]:
             del sessions[session_id]
             print(f"[x] {session_id}: Session closed (no clients)")
+    except Exception as e:
+        # Handle other exceptions
+        print(f"[!] {session_id}: Unexpected error: {e}")
+        if websocket in sessions[session_id]["clients"]:
+            sessions[session_id]["clients"].remove(websocket)
 
 # Optional: for local testing
 if __name__ == "__main__":
