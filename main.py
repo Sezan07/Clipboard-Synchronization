@@ -15,6 +15,9 @@ app.add_middleware(
 
 # In-memory session store: {session_id: {"clients": [WebSocket, ...], "clipboard": str}}
 sessions = {}
+@app.get("/")
+def root():
+    return {"status": "WebSocket server ready"}
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
